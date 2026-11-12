@@ -1,8 +1,9 @@
 # HomeXDR Sigma rules
 
-[Sigma](https://sigmahq.io/) detection rules for homelabs: Docker and Unraid hosts, SSH, and DNS
-lookups from a resolver's query log (AdGuard Home, Pi-hole, Technitium, Unbound). They cover
-what the community Windows and Linux rule sets leave out on a home server.
+[Sigma](https://sigmahq.io/) detection rules for homelabs: Docker and Unraid hosts, SSH, DNS
+lookups from a resolver's query log (AdGuard Home, Pi-hole, Technitium, Unbound), OPNsense, and
+attempts to switch monitoring off. They cover what the community Windows and Linux rule sets leave
+out on a home server.
 
 The rules are written for [HomeXDR](https://github.com/Netdoodle/homexdr), which also ships them
 built in, and are tested there against matching and lookalike events
@@ -24,6 +25,21 @@ built in, and are tested there against matching and lookalike events
 | [SSH Login From A Public Address](rules/auth/auth_ssh_login_public_address.yml) | high | a successful SSH login from outside private and Tailscale ranges |
 | [Root SSH Login With A Password](rules/auth/auth_ssh_root_password_login.yml) | medium | root or Administrator logging in over SSH with a password |
 | [SSH Login With A Key HomeXDR Does Not Know](rules/auth/auth_ssh_login_unnamed_key.yml) | low | a key login whose key has no name in HomeXDR (HomeXDR only) |
+| [HomeXDR Agent Stopped Or Removed On Linux](rules/linux/proc_creation_lnx_homexdr_agent_tamper.yml) | high | `pkill`, `systemctl stop`, `plugin remove` or `uninstall` of the agent |
+| [HomeXDR Agent Stopped Or Removed On Windows](rules/windows/proc_creation_win_homexdr_agent_tamper.yml) | high | `sc stop`/`delete`, `Stop-Service`, `taskkill` or `uninstall` of the agent service |
+| [Sysmon Or Process Auditing Turned Off](rules/windows/proc_creation_win_disable_sysmon_auditing.yml) | high | `sysmon -u`, `auditpol` disabling or clearing, `wevtutil sl ... /e:false` on Sysmon, Security, OpenSSH, PowerShell or Defender logs |
+| [Package Installed Inside A Running Container](rules/linux/proc_creation_lnx_container_package_install.yml) | medium | `apk add`, `apt-get install`, `pip install` and similar inside a container after start-up |
+| [Download Piped To A Shell Inside A Container](rules/linux/proc_creation_lnx_container_curl_pipe_shell.yml) | high | `curl ... \| sh` and `sh -c "$(wget ...)"` inside a container |
+| [Web Application In A Container Started A Shell Or Network Tool](rules/linux/proc_creation_lnx_container_webapp_spawns_shell.yml) | medium | nginx, PHP-FPM, Node.js, Python or Java in a container starting `sh`, `curl`, `nc` and similar |
+| [Interactive Shell Opened In A Container](rules/linux/proc_creation_lnx_docker_exec_shell.yml) | low | `docker exec ... sh`, including the Unraid console button |
+| [SSH Server Configured To Allow Root Or Password Logins](rules/linux/proc_creation_lnx_sshd_config_weakened.yml) | medium | setting `PermitRootLogin`, `PasswordAuthentication` or `PermitEmptyPasswords` to yes |
+| [Unraid User Script Or Cron File Written From The Command Line](rules/linux/proc_creation_lnx_unraid_flash_persistence.yml) | medium | writing a User Scripts script or a plugin `.cron` file on the flash drive |
+| [Virtual Machine Defined From The Command Line](rules/linux/proc_creation_lnx_virsh_vm_defined.yml) | low | `virsh define`/`create`/`autostart` and `virt-install` |
+| [DNS Lookup Of A DNS-over-HTTPS Provider](rules/dns/dns_query_doh_provider.yml) | low | dns.google, cloudflare-dns.com, Quad9, NextDNS and other DoH servers: the next lookups go around your resolver |
+| [DNS Lookup Of A Dynamic DNS Name](rules/dns/dns_query_dynamic_dns.yml) | low | duckdns, no-ip, dynu and other free dynamic DNS names |
+| [OPNsense Web GUI Login Failed](rules/network/opnsense_gui_login_failed.yml) | medium | a failed web interface login |
+| [OPNsense Web GUI Login](rules/network/opnsense_gui_login.yml) | low | a web interface login |
+| [OPNsense Configuration Changed](rules/network/opnsense_config_changed.yml) | low | any configuration change, with user, address and page |
 
 ## Using them
 
@@ -43,6 +59,14 @@ fills in, so map them in your pipeline:
 | `auth_method` | `publickey`, `password`, `keyboard-interactive` |
 | `container.id` | set when the process runs in a container |
 | `labels.ssh_key`, `labels.ssh_key_name` | the key a session used, and its name in HomeXDR |
+| `labels.maintenance` | set by HomeXDR on maintenance work, such as a container's start-up minutes |
+| `method` | the login method of an SSH line received over syslog (HomeXDR's syslog decoder) |
+| `event.action: ssh-login` | a successful SSH login received over syslog |
+| logsource `service: audit`, `Message` | an OPNsense audit log line received over syslog |
+
+The OPNsense rules need its audit log forwarded: **System → Settings → Logging → Remote**, add
+`audit` to the destination's Applications. The audit line formats come from OPNsense's own audit
+log; if a rule never fires on yours, open an issue with a sample line.
 
 ## Tuning
 
