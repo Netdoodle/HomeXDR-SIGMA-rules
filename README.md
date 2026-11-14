@@ -40,6 +40,12 @@ built in, and are tested there against matching and lookalike events
 | [OPNsense Web GUI Login Failed](rules/network/opnsense_gui_login_failed.yml) | medium | a failed web interface login |
 | [OPNsense Web GUI Login](rules/network/opnsense_gui_login.yml) | low | a web interface login |
 | [OPNsense Configuration Changed](rules/network/opnsense_config_changed.yml) | low | any configuration change, with user, address and page |
+| [Remote Admin Or Database Port Allowed In From The Internet](rules/network/opnsense_inbound_admin_port_allowed.yml) | high | the firewall passing SSH, RDP, VNC, SMB, Telnet, WinRM, Docker or a database port from a public address to a device inside |
+| [Windows File Sharing Connection To The Internet](rules/network/opnsense_outbound_smb_to_internet.yml) | medium | the firewall passing port 445 or 139 from inside to a public address |
+| [Telnet Connection To The Internet](rules/network/opnsense_outbound_telnet_to_internet.yml) | medium | the firewall passing port 23 or 2323 from inside to a public address, as Mirai-type botnets do |
+| [SSH Login Tried For A User That Does Not Exist From Inside The Network](rules/auth/auth_ssh_invalid_user_from_inside.yml) | medium | a failed SSH login for an unknown user name from a private address |
+| [DNS Lookup Of A Cryptocurrency Mining Pool](rules/dns/dns_query_crypto_mining_pool.yml) | high | nanopool, supportxmr, moneroocean, 2miners, f2pool, nicehash and other pools |
+| [DNS Lookup Of A Remote Desktop Service](rules/dns/dns_query_remote_access_tool.yml) | low | AnyDesk, TeamViewer, RustDesk, ScreenConnect, Splashtop, LogMeIn and similar |
 
 ## Using them
 
@@ -63,10 +69,16 @@ fills in, so map them in your pipeline:
 | `method` | the login method of an SSH line received over syslog (HomeXDR's syslog decoder) |
 | `event.action: ssh-login` | a successful SSH login received over syslog |
 | logsource `service: audit`, `Message` | an OPNsense audit log line received over syslog |
+| logsource `product: opnsense`, `category: firewall` | an OPNsense filterlog line received over syslog |
+| `event.action: pass`, `Protocol`, `SourceIp`, `DestinationIp`, `DestinationPort` | the firewall's action (`pass` or `block`), transport (`tcp`, `udp`) and the connection's addresses and port |
+| `event.action: ssh-login-failed` / `ssh_invalid_user`, `event.outcome: failure`, `Message` | a failed SSH login and the sshd log line |
 
 The OPNsense rules need its audit log forwarded: **System → Settings → Logging → Remote**, add
 `audit` to the destination's Applications. The audit line formats come from OPNsense's own audit
 log; if a rule never fires on yours, open an issue with a sample line.
+
+The three firewall rules only see connections OPNsense logs: turn on logging for your port
+forwards and WAN pass rules, and for the LAN rules that let traffic out.
 
 ## Tuning
 
