@@ -1,13 +1,13 @@
 # HomeXDR Sigma rules
 
 [Sigma](https://sigmahq.io/) detection rules for homelabs: Docker and Unraid hosts, SSH, DNS
-lookups from a resolver's query log (AdGuard Home, Pi-hole, Technitium, Unbound), OPNsense, and
-attempts to switch monitoring off. They cover what the community Windows and Linux rule sets leave
-out on a home server.
+lookups from a resolver's query log (AdGuard Home, Pi-hole, Technitium, Unbound), OPNsense, Macs, and
+attempts to switch monitoring off. They cover what the community Windows, Linux and macOS rule sets
+leave out on a home network.
 
 The rules are written for [HomeXDR](https://github.com/Netdoodle/homexdr), which also ships them
 built in, and are tested there against matching and lookalike events
-(`server/internal/detect/homexdr_rules_test.go`).
+(`server/internal/detect/homexdr_rules_test.go`; the macOS rules in `homexdr_rules_macos_test.go`).
 
 ## Rules
 
@@ -46,6 +46,23 @@ built in, and are tested there against matching and lookalike events
 | [SSH Login Tried For A User That Does Not Exist From Inside The Network](rules/auth/auth_ssh_invalid_user_from_inside.yml) | medium | a failed SSH login for an unknown user name from a private address |
 | [DNS Lookup Of A Cryptocurrency Mining Pool](rules/dns/dns_query_crypto_mining_pool.yml) | high | nanopool, supportxmr, moneroocean, 2miners, f2pool, nicehash and other pools |
 | [DNS Lookup Of A Remote Desktop Service](rules/dns/dns_query_remote_access_tool.yml) | low | AnyDesk, TeamViewer, RustDesk, ScreenConnect, Splashtop, LogMeIn and similar |
+| [HomeXDR Agent Stopped Or Removed On macOS](rules/macos/proc_creation_macos_homexdr_agent_tamper.yml) | high | `launchctl bootout`/`unload`/`disable`, `pkill` or `uninstall` of the agent |
+| [Download Piped To A Shell On macOS](rules/macos/proc_creation_macos_download_pipe_shell.yml) | medium | `curl ... \| sh`, `bash -c "$(curl ...)"`, base64 into a shell, or `do shell script` running curl, when run as one command line |
+| [Browser Passwords, Cookies, Keychains Or Wallets Copied On macOS](rules/macos/proc_creation_macos_browser_keychain_data_copied.yml) | high | `cp`, `ditto`, `zip`, `sqlite3` and similar on Chrome and Firefox logins and cookies, keychains or crypto wallets, as infostealers do |
+| [Archive Uploaded With Curl From A Temporary Folder On macOS](rules/macos/proc_creation_macos_archive_upload_from_temp.yml) | medium | `curl -F file=@/tmp/x.zip` and similar uploads of an archive from `/tmp`, `/var/folders` or `/Users/Shared` |
+| [Privacy Database Edited Directly On macOS](rules/macos/proc_creation_macos_tcc_db_modified.yml) | high | `sqlite3` writing to a `TCC.db`, or a file copied over one: privacy permissions granted without a prompt |
+| [Gatekeeper Or Quarantine Turned Off From The Command Line](rules/macos/proc_creation_macos_gatekeeper_disabled.yml) | high | `spctl --master-disable` or `--global-disable`, or `LSQuarantine` set to no |
+| [Remote Login Or Screen Sharing Turned On From The Command Line](rules/macos/proc_creation_macos_remote_access_enabled.yml) | medium | `systemsetup -setremotelogin on`, `launchctl load` of SSH or Screen Sharing, or the Remote Desktop `kickstart -activate` |
+| [Certificate Trusted As A Root From The Command Line On macOS](rules/macos/proc_creation_macos_trusted_root_cert_added.yml) | medium | `security add-trusted-cert` |
+| [Web Proxy Set From The Command Line On macOS](rules/macos/proc_creation_macos_web_proxy_set.yml) | medium | `networksetup -setwebproxy`, `-setsecurewebproxy`, `-setsocksfirewallproxy` or `-setautoproxyurl` |
+| [Login Or Logout Hook Set On macOS](rules/macos/proc_creation_macos_login_hook_set.yml) | high | `defaults write com.apple.loginwindow LoginHook` or `LogoutHook` |
+| [Shell Startup File Changed By A Program In A Temporary Or Hidden Folder](rules/macos/file_event_macos_shell_profile_written_from_temp.yml) | medium | a program in `/tmp`, `/var/folders`, `/Users/Shared`, `/Volumes` or a hidden folder changing `.zshrc`, `.zprofile`, `.bash_profile` and similar |
+| [Launch Job Loaded From A Temporary Or Hidden Folder On macOS](rules/macos/proc_creation_macos_launchctl_load_from_temp.yml) | high | `launchctl load`, `bootstrap` or `submit` of a job in `/tmp`, `/var/folders`, `/Users/Shared` or a hidden folder |
+| [Program Started From A Hidden File Or Folder On macOS](rules/macos/proc_creation_macos_exec_from_hidden_folder.yml) | medium | a program run from a hidden file in a home folder (`~/.helper`) or a hidden folder in `/tmp`, `/Users/Shared` or Application Support |
+| [Office App Started A Shell Or Script On macOS](rules/macos/proc_creation_macos_office_spawns_shell.yml) | high | Word, Excel or PowerPoint starting a shell, `osascript`, Python, Perl, Ruby or curl |
+| [Application Firewall Turned Off On macOS](rules/macos/proc_creation_macos_firewall_disabled.yml) | medium | `socketfilterfw --setglobalstate off` or `com.apple.alf globalstate 0` |
+| [System Logs Erased On macOS](rules/macos/proc_creation_macos_logs_erased.yml) | high | `log erase`, logging switched off with `log config`, or the log, audit or diagnostics folders deleted |
+| [Sudo Rule Added From The Command Line On macOS](rules/macos/proc_creation_macos_sudoers_modified.yml) | medium | `tee`, `cp`, `mv` or a redirect writing `/etc/sudoers` or `/etc/sudoers.d` |
 
 ## Using them
 
@@ -53,8 +70,10 @@ built in, and are tested there against matching and lookalike events
 independently of server releases: **Rules → Import rules**, paste
 `https://github.com/Netdoodle/HomeXDR-SIGMA-rules`, folder `rules`.
 
-**Elsewhere:** the process rules use the standard Sigma `process_creation` fields (`Image`,
-`CommandLine`) and work with any backend. The others use ECS-style field names that HomeXDR
+**Elsewhere:** the process and file rules use the standard Sigma `process_creation` and
+`file_event` fields (`Image`, `CommandLine`, `ParentImage`, `TargetFilename`) and work with any
+backend; on macOS they need process and file events from Endpoint Security (HomeXDR's agent, or
+another EDR that maps them to Sigma). The others use ECS-style field names that HomeXDR
 fills in, so map them in your pipeline:
 
 | Field in the rules | Meaning |
@@ -79,6 +98,14 @@ log; if a rule never fires on yours, open an issue with a sample line.
 
 The three firewall rules only see connections OPNsense logs: turn on logging for your port
 forwards and WAN pass rules, and for the LAN rules that let traffic out.
+
+## macOS
+
+The macOS rules aim at what current infostealers and backdoors do on a Mac: stealing browser
+logins, keychains and wallets, zipping them in `/tmp` and uploading them with curl, hiding in dot
+files, and switching off Gatekeeper, the firewall or logging. Rules that look for a whole pipeline
+(`curl ... | sh`) only see it when a script or AppleScript runs it as one command line;
+commands typed into Terminal start each program separately.
 
 ## Tuning
 
